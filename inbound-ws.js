@@ -1,11 +1,11 @@
 import Twilio from "twilio";
-const OpenAI = require('openai');
+import OpenAI from "openai";
 
 export function registerInboundWSRoutes(fastify) {
     const {
         TWILIO_ACCOUNT_SID,
         TWILIO_AUTH_TOKEN,
-        TWILIO_WS_PHONE_NUMBER
+        TWILIO_WS_PHONE_NUMBER,
         OPENAI_API_KEY
     } = process.env;
 
@@ -19,7 +19,7 @@ export function registerInboundWSRoutes(fastify) {
     fastify.post("/inbound-ws", async (request, reply) => {
         console.info("[Server] Twilio connected to inbound Ws send method");
         console.info("[Server] Request body:", request.body);
-    }
+    });
     /*
         const { number, body} = request.body;
 
