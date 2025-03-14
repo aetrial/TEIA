@@ -27,15 +27,19 @@ export function registerInboundWSRoutes(fastify) {
     fastify.post("/inbound-ws", async (request, reply) => {
         console.info("[Server] Twilio connected to inbound Ws send method");
 
-        const { from, body } = request.body;
+        const { From: from, Body: body } = request.body;
+
 
         if (!from) {
             return reply.code(400).send({ error: "Phone number is required" });
         }
 
         if (!body) {
-            return reply.code(400).send({ error: "Variables are required" });
+            return reply.code(400).send({ error: "Body is required" });
         }
+
+        console.log("From:", from);
+        console.log("Body:", body);
 
         try {
             const client = new Client({
@@ -50,21 +54,21 @@ export function registerInboundWSRoutes(fastify) {
 
             let thread = null;
             if (res.rows.length > 0) {
-                thread = res.rows[0].thread_id; // Assuming thread_id is the column name
+                thread = res.rows[0].thread_id;
             }
             const response = await chat(body, thread); // Call the chat function with or without thread
             const replyMessage = response.response || "Sorry, no response from Agent";
             if (res.rows.length === 0) {
                 // Create a new thread entry if not found
                 const insertQuery = 'INSERT INTO threads (phone_number, thread_id) VALUES ($1, $2)';
-                await client.query(insertQuery, [from, response.thread.id]);
-                thread = response.thread.id;
+                await client.query(insertQuery, [from, response.thread]);
+                thread = response.thread;
             }
 
             const message = await twilioClient.messages.create({
                 body: replyMessage,
                 from: "whatsapp:" + TWILIO_WS_PHONE_NUMBER,
-                to: "whatsapp:" + from
+                to: from
             });
 
             console.log(message.sid);

@@ -17,16 +17,16 @@ export const chat = async (question, thread = null) => {
         const assistant = OPENAI_ASSISTANT_KEY;
 
         const openai = new OpenAI({ apiKey: openaiApiKey });
-        thread = thread || await openai.beta.threads.create();
+        thread = thread || (await openai.beta.threads.create()).id;
 
         // Crear el mensaje del usuario en el hilo
-        await openai.beta.threads.messages.create(thread.id, {
+        await openai.beta.threads.messages.create(thread, {
             role: "user",
             content: question
         });
 
         // Crear y ejecutar la corrida del asistente
-        const run = await openai.beta.threads.runs.createAndPoll(thread.id, {
+        const run = await openai.beta.threads.runs.createAndPoll(thread, {
             assistant_id: assistant,
             instructions: "El nombre de este usuario es desconocido"
         });
@@ -34,19 +34,19 @@ export const chat = async (question, thread = null) => {
         // Si la corrida se completa, obtén la lista de mensajes y la última respuesta del asistente
         if (run.status === 'completed') {
             const messages = await openai.beta.threads.messages.list(run.thread_id);
-            //for (const message of messages.data.reverse()) {
-            //    console.log(`Mensaje GS: ${message.role} > ${message.content[0].text.value}`);
-            //}
+            for (const message of messages.data.reverse()) {
+                console.log(`Mensaje GS: ${message.role} > ${message.content[0].text.value}`);
+            }
             const assistantResponse = messages.data
                 .filter(message => message.role === 'assistant')
                 .pop(); // Obtiene el último mensaje del asistente
 
             // Devuelve el thread y la última respuesta del asistente (si existe)
             const answer = assistantResponse ? assistantResponse.content[0].text.value : null
-            const cleanAnswer = answer.replace(/【\d+:\d+†source】/g, '');
+            //const cleanAnswer = answer.replace(/【\d+:\d+†source】/g, '');
             return {
                 thread,
-                response: cleanAnswer
+                response: answer
             };
         }
 
