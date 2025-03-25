@@ -6,6 +6,7 @@ import { registerInboundRoutes } from './inbound-calls.js';
 import { registerOutboundRoutes } from './outbound-calls.js';
 import { registerOutboundWSRoutes } from './outbound-ws.js';
 import { registerInboundWSRoutes } from './inbound-ws.js';
+import { registerOutboundRoutesNp } from './outbound-calls-nopromp.js';
 
 // Load environment variables from .env file
 dotenv.config();
@@ -31,6 +32,7 @@ const start = async () => {
     // Register route handlers
     await registerInboundRoutes(fastify);
     await registerOutboundRoutes(fastify);
+    await registerOutboundRoutesNp(fastify);
     await registerOutboundWSRoutes(fastify);
     await registerInboundWSRoutes(fastify);
 
