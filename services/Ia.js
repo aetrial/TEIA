@@ -1,17 +1,45 @@
 import OpenAI from "openai";
+import pkg from 'pg';
+const { Client } = pkg;
 
-export const chat = async (question, thread = null) => {
+export const chat = async (question, thread = null, twilioId) => {
     try {
 
         const {
-                OPENAI_ASSISTANT_KEY,
-                OPENAI_API_KEY
-            } = process.env;
+                    DB_HOST,
+                    DB_USER,
+                    DB_PASSWORD,
+                    DB_NAME
+                } = process.env;
 
-        if (!OPENAI_ASSISTANT_KEY || !OPENAI_API_KEY) {
-                console.error("Missing required environment variables");
-                throw new Error("Missing required environment variables");
-            }
+        if (!DB_HOST || !DB_USER || !DB_PASSWORD || !DB_NAME) {
+                    console.error("Missing required environment variables");
+                    throw new Error("Missing required environment variables");
+                }
+
+        const client = new Client({
+                    host: DB_HOST,
+                    user: DB_USER,
+                    password: DB_PASSWORD,
+                    database: DB_NAME
+                });
+        await client.connect();
+
+        const query = `
+                    SELECT * FROM open_ai_info oai
+                    JOIN teia_user tu ON tu.open_ai_info_id = oai.id
+                    JOIN twilio_info ti ON tu.twilio_info_id = ti.id
+                    WHERE ti.id = $1
+                `;
+        const res = await client.query(query, [twilioId]);
+
+        if (res.rows.length === 0) {
+            throw new Error("OpenAI information not found for the given Twilio ID");
+        }
+
+        const openAiInfo = res.rows[0];
+        console.log("OpenAI Info:", openAiInfo);
+        const { open_ai_api_key: OPENAI_API_KEY, open_ai_assistant_key: OPENAI_ASSISTANT_KEY } = openAiInfo;
 
         const openaiApiKey = OPENAI_API_KEY;
         const assistant = OPENAI_ASSISTANT_KEY;

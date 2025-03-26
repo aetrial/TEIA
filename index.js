@@ -3,7 +3,6 @@ import dotenv from "dotenv";
 import fastifyFormBody from "@fastify/formbody";
 import fastifyWs from "@fastify/websocket";
 import { registerInboundRoutes } from './inbound-calls.js';
-import { registerOutboundRoutes } from './outbound-calls.js';
 import { registerOutboundWSRoutes } from './outbound-ws.js';
 import { registerInboundWSRoutes } from './inbound-ws.js';
 import { registerOutboundRoutesNp } from './outbound-calls-nopromp.js';
@@ -31,7 +30,6 @@ const start = async () => {
   try {
     // Register route handlers
     await registerInboundRoutes(fastify);
-    await registerOutboundRoutes(fastify);
     await registerOutboundRoutesNp(fastify);
     await registerOutboundWSRoutes(fastify);
     await registerInboundWSRoutes(fastify);

@@ -1,26 +1,33 @@
 import Twilio from "twilio";
+import pkg from 'pg';
+const { Client } = pkg;
 
 export function registerOutboundWSRoutes(fastify) {
     const {
-        TWILIO_ACCOUNT_SID,
-        TWILIO_AUTH_TOKEN,
-        TWILIO_WS_PHONE_NUMBER
-    } = process.env;
+            DB_HOST,
+            DB_USER,
+            DB_PASSWORD,
+            DB_NAME
+        } = process.env;
 
-    if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN || !TWILIO_WS_PHONE_NUMBER) {
-        console.error("Missing required environment variables");
-        throw new Error("Missing required environment variables");
-    }
+    if (!DB_HOST || !DB_USER || !DB_PASSWORD || !DB_NAME) {
+            console.error("Missing required environment variables");
+            throw new Error("Missing required environment variables");
+        }
 
-    const twilioClient = new Twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
+    //const twilioClient = new Twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
 
     fastify.post("/outbound-ws", async (request, reply) => {
-        const { number, variables, templateId } = request.body;
+        const { from, to, variables, templateId } = request.body;
 
         console.info("[Server] Twilio connected to outbound Ws send method");
 
-        if (!number) {
-            return reply.code(400).send({ error: "Phone number is required" });
+        if (!from) {
+            return reply.code(400).send({ error: "From phone number is required" });
+        }
+
+        if (!to) {
+            return reply.code(400).send({ error: "To phone number is required" });
         }
 
         if (!variables) {
@@ -32,7 +39,32 @@ export function registerOutboundWSRoutes(fastify) {
         }
 
         try {
-            console.info("[Server] Sending initial conversation WS message to whatsapp:", number);
+            const client = new Client({
+                        host: DB_HOST,
+                        user: DB_USER,
+                        password: DB_PASSWORD,
+                        database: DB_NAME
+            });
+            await client.connect();
+
+             const fromPhoneNumber = from.replace("whatsapp:", "");
+
+             const twilioInfoRes = await client.query(`
+                   SELECT * FROM twilio_info ti WHERE ti.twilio_phone_number_whatsapp = $1
+                   `, [fromPhoneNumber]);
+
+             if (twilioInfoRes.rows.length === 0) {
+                   throw new Error("Twilio information not found for the given phone number");
+             }
+
+             const twilioInfo = twilioInfoRes.rows[0];
+             console.log("Twilio info:", twilioInfo);
+
+             const { twilio_acc_sid: TWILIO_ACCOUNT_SID, twilio_auth_token: TWILIO_AUTH_TOKEN, twilio_phone_number_whatsapp: TWILIO_WS_PHONE_NUMBER } = twilioInfo;
+
+             const twilioClient = new Twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
+
+            console.info("[Server] Sending initial conversation WS message to whatsapp:", to);
             console.info("[Server] Template ID:", templateId);
             console.info("[Server] Variables:", variables);
             console.info("[Server] Twilio phone number whatsapp:", TWILIO_WS_PHONE_NUMBER);
@@ -40,7 +72,7 @@ export function registerOutboundWSRoutes(fastify) {
                 from: "whatsapp:" + TWILIO_WS_PHONE_NUMBER,
                 contentSid: templateId,
                 contentVariables: variables,
-                to: "whatsapp:" + number
+                to: "whatsapp:" + to
             });
 
             console.log(message.sid);
