@@ -56,7 +56,7 @@ export const chat = async (question, thread = null, twilioId) => {
         // Crear y ejecutar la corrida del asistente
         const run = await openai.beta.threads.runs.createAndPoll(thread, {
             assistant_id: assistant,
-            instructions: "El nombre de este usuario es desconocido"
+            instructions: "tu nombre es roberto"
         });
 
         // Si la corrida se completa, obtén la lista de mensajes y la última respuesta del asistente

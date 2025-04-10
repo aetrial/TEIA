@@ -69,7 +69,7 @@ export function registerInboundWSRoutes(fastify) {
 
             console.info("[Server] Twilio client created");
 
-            const res = await client.query('SELECT * FROM threads WHERE phone_number = $1', [from]);
+            const res = await client.query('SELECT * FROM threads WHERE to_phone_number = $1 AND from_phone_number = $2', [to, from]);
 
             let thread = null;
             if (res.rows.length > 0) {
@@ -79,8 +79,8 @@ export function registerInboundWSRoutes(fastify) {
             const replyMessage = response.response || "Sorry, no response from Agent";
             if (res.rows.length === 0) {
                 // Create a new thread entry if not found
-                const insertQuery = 'INSERT INTO threads (phone_number, thread_id) VALUES ($1, $2)';
-                await client.query(insertQuery, [from, response.thread]);
+                const insertQuery = 'INSERT INTO threads (to_phone_number, from_phone_number, thread_id) VALUES ($1, $2, $3)';
+                await client.query(insertQuery, [to, from, response.thread]);
                 thread = response.thread;
             }
 
