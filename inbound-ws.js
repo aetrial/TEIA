@@ -74,6 +74,7 @@ export function registerInboundWSRoutes(fastify) {
             let thread = null;
             if (res.rows.length > 0) {
                 thread = res.rows[0].thread_id;
+                console.log("Thread ID found:", thread);
             }
             const response = await chat(body, thread, TWILIO_ID); // Call the chat function with or without thread
             const replyMessage = response.response || "Sorry, no response from Agent";
