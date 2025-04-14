@@ -6,6 +6,7 @@ import { registerInboundRoutes } from './inbound-calls.js';
 import { registerOutboundWSRoutes } from './outbound-ws.js';
 import { registerInboundWSRoutes } from './inbound-ws.js';
 import { registerOutboundRoutesNp } from './outbound-calls-nopromp.js';
+import { registerAgentWS } from './AgentCreator-ws.js';
 
 // Load environment variables from .env file
 dotenv.config();
@@ -33,6 +34,7 @@ const start = async () => {
     await registerOutboundRoutesNp(fastify);
     await registerOutboundWSRoutes(fastify);
     await registerInboundWSRoutes(fastify);
+    await registerAgentWS(fastify);
 
     // Start listening
     await fastify.listen({ port: PORT, host: '0.0.0.0' });

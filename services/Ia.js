@@ -44,6 +44,8 @@ export const chat = async (question, thread = null, twilioId) => {
         const openaiApiKey = OPENAI_API_KEY;
         const assistant = OPENAI_ASSISTANT_KEY;
 
+        console.log("Assistant ID of current agent:", assistant);
+
         const openai = new OpenAI({ apiKey: openaiApiKey });
         thread = thread || (await openai.beta.threads.create()).id;
 
@@ -55,8 +57,7 @@ export const chat = async (question, thread = null, twilioId) => {
 
         // Crear y ejecutar la corrida del asistente
         const run = await openai.beta.threads.runs.createAndPoll(thread, {
-            assistant_id: assistant,
-            instructions: "tu nombre es roberto"
+            assistant_id: assistant
         });
 
         // Si la corrida se completa, obtén la lista de mensajes y la última respuesta del asistente
