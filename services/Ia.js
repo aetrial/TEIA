@@ -32,10 +32,11 @@ const toolOutputs = await Promise.all(
       };
     } else if (tool.function.name === "createBooking") {
       const toolArguments = JSON.parse(tool.function.arguments);
+      console.log("toolArguments createBooking:", tool);
       const booking = await createBooking({
         twilioId,
-        dateFrom: toolArguments.dateFrom,
-        dateTo: toolArguments.dateTo,
+        dateFrom: toolArguments.start,
+        dateTo: toolArguments.end,
         responses: toolArguments.responses,
       });
       console.log("createBooking response:", booking);
@@ -43,16 +44,20 @@ const toolOutputs = await Promise.all(
         tool_call_id: tool.id,
         output: JSON.stringify(booking),
       };
+     } else {
+        return null;
      }
      })
     );
 
     // Submit all tool outputs at once after collecting them in a list
+    console.log("thread before submittools: ", thread, "run id: ", run.id);
+    console.log("toolOutputs: ", toolOutputs);
     if (toolOutputs.length > 0) {
       run = await openai.beta.threads.runs.submitToolOutputsAndPoll(
         thread,
         run.id,
-        { tool_outputs: toolOutputs },
+        { tool_outputs: toolOutputs.filter(output => output !== null) },
       );
       console.log("Tool outputs submitted successfully.");
     } else {
@@ -110,19 +115,6 @@ export const chat = async (question, thread = null, twilioId) => {
 
         console.log("Assistant ID of current agent:", assistant);
 
-        // Check for active runs and cancel if necessary
-        if (thread) {
-            const activeRuns = await openai.beta.threads.runs.list(thread);
-            const activeOrActionRun = activeRuns.data.find(
-              run => run.status === "active" || run.status === "requires_action"
-            );
-            if (activeOrActionRun) {
-                console.log(`Active run detected: ${activeRun.id}. Canceling it.`);
-                await openai.beta.threads.runs.cancel(thread, activeRun.id);
-                console.log(`Run ${activeRun.id} canceled successfully.`);
-            }
-        }
-
         thread = thread || (await openai.beta.threads.create()).id;
 
         // Create the user message in the thread
@@ -136,9 +128,14 @@ export const chat = async (question, thread = null, twilioId) => {
             assistant_id: assistant
         });
 
+        console.log("Run ID:", run.id);
+
         if (run.status === 'completed') {
             console.log("run status: " + run.status);
             const messages = await openai.beta.threads.messages.list(run.thread_id);
+            for (const message of messages.data.reverse()) {
+                console.log(`${message.role} > ${message.content[0].text.value}`);
+              }
             const assistantResponse = messages.data
                 .filter(message => message.role === 'assistant')
                 .pop();
@@ -146,10 +143,32 @@ export const chat = async (question, thread = null, twilioId) => {
             const answer = assistantResponse ? assistantResponse.content[0].text.value : null;
             return { thread, response: answer };
         } else if (run.status === "requires_action") {
-            console.log("run status: " + run.status);
+            console.log("run status: " + run.status + " tooling Name: " + run.required_action.submit_tool_outputs.tool_calls[0].function.name);
             await handleRequiresAction(run, openai, twilioId, thread);
+            console.log("run status after outputs: " + run.status);
 
+            let attempts = 0; // Initialize a counter for the loop
+            const maxAttempts = 5; // Set the maximum number of attempts
+
+            const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+            while (run.status !== 'completed' && attempts < maxAttempts) {
+                console.log(`Run status: ${run.status}. Attempt ${attempts + 1} of ${maxAttempts}. Waiting for 5 seconds...`);
+                await wait(5000); // Wait for 2 seconds
+                run = await openai.beta.threads.runs.retrieve(run.thread_id, run.id); // Refresh the run status
+                attempts++; // Increment the counter
+            }
+
+            if (run.status !== 'completed') {
+                console.error(`Run did not complete after ${maxAttempts} attempts.`);
+                return { thread, response: "Disculpa, ¿podrias ser un poco mas claro con tu pregunta?." };
+            }
+
+            console.log("Run status: completed. Fetching messages...");
             const messages = await openai.beta.threads.messages.list(run.thread_id);
+            for (const message of messages.data.reverse()) {
+                console.log(`${message.role} > ${message.content[0].text.value}`);
+            }
             const assistantResponse = messages.data
                 .filter(message => message.role === 'assistant')
                 .pop();
@@ -172,6 +191,6 @@ export const chat = async (question, thread = null, twilioId) => {
                 console.error(`Failed to cancel run ${run.id}:`, cancelError);
             }
         }
-        return { thread, response: "ERROR" };
+        return { thread, response: "Estamos presentando fallas en nuestro sistema. Nuestro equipo esta trabajando para solventarlo. Disculpa las molestias" };
     }
 };

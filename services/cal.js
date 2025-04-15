@@ -3,20 +3,21 @@ import pkg from 'pg';
 import { DateTime } from 'luxon';
 const { Client } = pkg;
 
-const transformBusyDates = (busyArray, timeZone) => {
-  return busyArray.map(({ start, end }) => {
-    const startInBogota = DateTime.fromISO(start, { zone: 'utc' }).setZone(timeZone);
-    const endInBogota = DateTime.fromISO(end, { zone: 'utc' }).setZone(timeZone);
-
-    return {
-      start: startInBogota.toISO(),
-      end: endInBogota.toISO(),
-    };
+const transformBusyDates = (slots, timeZone) => {
+  return Object.entries(slots).flatMap(([date, times]) => {
+    return times.map(({ time }) => {
+      const startInBogota = DateTime.fromISO(time, { zone: 'utc' }).setZone(timeZone);
+      return {
+        time: startInBogota.toISO(),
+      };
+    });
   });
 };
 
 export const checkAvailability = async ({ twilioId, dateFrom, dateTo }) => {
     try {
+
+        console.log("Entering checkAvailability function");
 
         console.log("twilioId:", twilioId);
         console.log("dateFrom:", dateFrom);
@@ -24,11 +25,11 @@ export const checkAvailability = async ({ twilioId, dateFrom, dateTo }) => {
 
         // Convert dateFrom and dateTo to UTC
         const dateFromUTC = new Date(dateFrom);
-        dateFromUTC.setDate(dateFromUTC.getDate() + 348);
+        dateFromUTC.setDate(dateFromUTC.getDate());
         const dateFromUpdated = dateFromUTC.toISOString();
 
         const dateToUTC = new Date(dateTo);
-        dateToUTC.setDate(dateToUTC.getDate() + 348);
+        dateToUTC.setDate(dateToUTC.getDate());
         const dateToUpdated = dateToUTC.toISOString();
 
         const {
@@ -68,19 +69,18 @@ export const checkAvailability = async ({ twilioId, dateFrom, dateTo }) => {
 
        const { user_id: userId, api_key: calApiKey, event_id: eventTypeId } = calInfo;
 
-        const response = await axios.get('https://api.cal.com/v1/availability', {
+        const response = await axios.get('https://api.cal.com/v1/slots', {
             params: {
-                userId,
-                dateFrom: dateFromUTC,
-                dateTo: dateToUTC,
+                startTime: dateFromUTC,
+                endTime: dateToUTC,
                 eventTypeId,
                 apiKey: calApiKey
             }
         });
 
-        const transformedBusy = transformBusyDates(response.data.busy, response.data.timeZone);
+        const transformedBusy = transformBusyDates(response.data.slots, response.data.timeZone);
 
-        response.data.busy = transformedBusy;
+        response.data.slots = transformedBusy;
 
         return response.data;
     } catch (error) {
@@ -92,9 +92,12 @@ export const checkAvailability = async ({ twilioId, dateFrom, dateTo }) => {
 export const createBooking = async ({ twilioId, dateFrom, dateTo, responses }) => {
     try {
 
-        // Convert dateFrom and dateTo to UTC
-        const dateFromUTC = new Date(dateFrom).toISOString();
-        const dateToUTC = new Date(dateTo).toISOString();
+        console.log("Entering createBooking function");
+
+        console.log("twilioId:", twilioId);
+        console.log("dateFrom:", dateFrom);
+        console.log("dateTo:", dateTo);
+        console.log("responses:", responses);
 
         const {
                 DB_HOST,
@@ -131,13 +134,15 @@ export const createBooking = async ({ twilioId, dateFrom, dateTo, responses }) =
        const calInfo = res.rows[0];
        console.log("cal Info:", calInfo);
 
-       const { user_id: userId, api_key: calApiKey, event_id: eventTypeId } = openAiInfo;
+       const { user_id: userId, api_key: calApiKey, event_id: eventTypeId } = calInfo;
+
+        const eventTypeIdInt = parseInt(eventTypeId, 10); // Cast to integer with base 10
 
         const response = await axios.post(`https://api.cal.com/v1/bookings?apiKey=${calApiKey}`, {
             responses,
-            dateFromUTC,
-            dateToUTC,
-            eventTypeId,
+            start: dateFrom,
+            end: dateTo,
+            eventTypeId: eventTypeIdInt,
             timeZone: "America/Bogota",
             language: "en",
             location: "",
@@ -152,6 +157,10 @@ export const createBooking = async ({ twilioId, dateFrom, dateTo, responses }) =
 
         return response.data;
     } catch (error) {
+        if (error.response.data.message === 'no_available_users_found_error') {
+            console.error('Error response:', error.response.data.message);
+            return error.response.data.message;
+        }
         console.error('Error creating booking:', error.response?.data || error.message);
         throw error;
     }
