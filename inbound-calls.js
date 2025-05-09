@@ -1,16 +1,34 @@
+import dotenv from "dotenv";
 import WebSocket from "ws";
-import pkg from 'pg';
+import pkg from "pg";
 const { Pool } = pkg;
 
-const pool = new Pool({
-  host: process.env.DB_HOST,
-  user: process.env.DB_USER,
-  password: process.env.DB_PASSWORD,
-  database: process.env.DB_NAME,
-  max: 20,
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 2000,
-});
+// Load environment variables
+dotenv.config();
+
+let pool;
+
+function getPool() {
+  if (!pool) {
+    pool = new Pool({
+      host: process.env.DB_HOST,
+      user: process.env.DB_USER,
+      password: validatePassword(process.env.DB_PASSWORD),
+      database: process.env.DB_NAME,
+      max: 20,
+      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 2000,
+    });
+  }
+  return pool;
+}
+
+function validatePassword(password) {
+  if (typeof password !== "string" || password.trim() === "") {
+    throw new Error("DB_PASSWORD must be a non-empty string");
+  }
+  return password;
+}
 
 export function registerInboundRoutes(fastify) {
   let ELEVENLABS_API_KEY;
@@ -19,7 +37,7 @@ export function registerInboundRoutes(fastify) {
   async function initializeGlobalVariables(from) {
     let client;
     try {
-      client = await pool.connect(); // Acquire a connection from the pool
+      client = await getPool().connect(); // Use the lazy-initialized pool
 
       const result = await client.query(`
         SELECT * FROM twilio_info ti

@@ -215,7 +215,7 @@ export function registerOutboundRoutesNp(fastify) {
       ws.on("message", (message) => {
         try {
           const msg = JSON.parse(message);
-          console.log(`[Twilio] Received event: ${msg.event}`);
+          //console.log(`[Twilio] Received event: ${msg.event}`);
 
           switch (msg.event) {
             case "start":
