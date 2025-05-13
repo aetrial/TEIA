@@ -43,7 +43,7 @@ export function registerOutboundRoutesNp(fastify) {
   }
 
   fastify.post("/outbound-call-np", async (request, reply) => {
-    const { to, from } = request.body;
+    const { to, from, nombre, items } = request.body;
 
     if (!to) {
       return reply.code(400).send({ error: "to Phone number is required" });
@@ -51,6 +51,14 @@ export function registerOutboundRoutesNp(fastify) {
 
     if (!from) {
       return reply.code(400).send({ error: "from Phone number is required" });
+    }
+
+    if (!nombre) {
+      return reply.code(400).send({ error: "nombre is required" });
+    }
+
+    if (!items) {
+        return reply.code(400).send({ error: "items is required" });
     }
 
     try {
@@ -82,7 +90,7 @@ export function registerOutboundRoutesNp(fastify) {
       const call = await twilioClient.calls.create({
             from: TWILIO_PHONE_NUMBER,
             to: to,
-            url: `https://${request.headers.host}/outbound-call-twiml-np?apiKey=${ELEVENLABS_API_KEY}&agentId=${ELEVENLABS_AGENT_ID}`
+            url: `https://${request.headers.host}/outbound-call-twiml-np?apiKey=${ELEVENLABS_API_KEY}&agentId=${ELEVENLABS_AGENT_ID}&nombre=${encodeURIComponent(nombre)}&items=${encodeURIComponent(items)}`,
           });
 
       reply.send({
@@ -102,9 +110,11 @@ export function registerOutboundRoutesNp(fastify) {
   });
 
   fastify.all("/outbound-call-twiml-np", async (request, reply) => {
-  const { apiKey: ELEVENLABS_API_KEY, agentId: ELEVENLABS_AGENT_ID } = request.query;
+  const { apiKey: ELEVENLABS_API_KEY, agentId: ELEVENLABS_AGENT_ID, nombre, items } = request.query;
     console.log('twiml ELEVENLABS_API_KEY:', ELEVENLABS_API_KEY);
     console.log('twiml ELEVENLABS_AGENT_ID:', ELEVENLABS_AGENT_ID);
+    console.log('twiml nombre:', nombre);
+    console.log('twiml objetos:', items);
 
     const twimlResponse = `<?xml version="1.0" encoding="UTF-8"?>
       <Response>
@@ -112,6 +122,8 @@ export function registerOutboundRoutesNp(fastify) {
           <Stream url="wss://${request.headers.host}/outbound-media-stream-np">
                     <Parameter name="apiKey" value="${ELEVENLABS_API_KEY}" />
                     <Parameter name="agentId" value="${ELEVENLABS_AGENT_ID}" />
+                    <Parameter name="name" value="${encodeURIComponent(nombre)}" />
+                    <Parameter name="items" value="${encodeURIComponent(items)}" />
                   </Stream>
         </Connect>
       </Response>`;
@@ -129,13 +141,28 @@ export function registerOutboundRoutesNp(fastify) {
 
       ws.on('error', console.error);
 
-      const setupElevenLabs = async (apiKey, agentId) => {
+      const setupElevenLabs = async (apiKey, agentId, name, items) => {
         try {
           const signedUrl = await getSignedUrl(apiKey, agentId);
           elevenLabsWs = new WebSocket(signedUrl);
 
+          const decodedNombre = decodeURIComponent(name);
+          const decodedItems = decodeURIComponent(items);
+
           elevenLabsWs.on("open", () => {
             console.log("[ElevenLabs] Connected to Conversational AI");
+                        // Send initial configuration with prompt and first message
+                      const initialConfig = {
+                        type: "conversation_initiation_client_data",
+                        dynamic_variables: {
+                                  name: decodedNombre,
+                                  items: decodedItems
+                        }
+                      };
+
+                      // Send the configuration to ElevenLabs
+                      elevenLabsWs.send(JSON.stringify(initialConfig));
+
           });
 
           elevenLabsWs.on("message", (data) => {
@@ -221,12 +248,14 @@ export function registerOutboundRoutesNp(fastify) {
             case "start":
               streamSid = msg.start.streamSid;
               callSid = msg.start.callSid;
-              const { apiKey, agentId } = msg.start.customParameters;
+              const { apiKey, agentId , name, items} = msg.start.customParameters;
               console.log('msg.start object', msg.start);
               console.log('start event apiKey:', apiKey);
               console.log('start event agentId:', agentId);
+              console.log('start event name:', name);
+              console.log('start event items:', items);
               console.log(`[Twilio] Stream started - StreamSid: ${streamSid}, CallSid: ${callSid}`);
-              setupElevenLabs(apiKey, agentId);
+              setupElevenLabs(apiKey, agentId, name, items);
               break;
 
             case "media":
