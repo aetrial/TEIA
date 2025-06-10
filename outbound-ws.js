@@ -1,19 +1,8 @@
 import Twilio from "twilio";
-import pkg from 'pg';
-const { Client } = pkg;
+import pool from './services/db.js'; // Import the shared pool
 
 export function registerOutboundWSRoutes(fastify) {
-    const {
-            DB_HOST,
-            DB_USER,
-            DB_PASSWORD,
-            DB_NAME
-        } = process.env;
 
-    if (!DB_HOST || !DB_USER || !DB_PASSWORD || !DB_NAME) {
-            console.error("Missing required environment variables");
-            throw new Error("Missing required environment variables");
-        }
 
     //const twilioClient = new Twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
 
@@ -39,13 +28,7 @@ export function registerOutboundWSRoutes(fastify) {
         }
 
         try {
-            const client = new Client({
-                        host: DB_HOST,
-                        user: DB_USER,
-                        password: DB_PASSWORD,
-                        database: DB_NAME
-            });
-            await client.connect();
+            const client = await pool.connect();
 
              const fromPhoneNumber = from.replace("whatsapp:", "");
 
@@ -83,6 +66,10 @@ export function registerOutboundWSRoutes(fastify) {
                 success: false,
                 error: "Failed to initiate WhatsApp message conversation"
             });
+        } finally {
+                if (client) {
+                    client.release(); // Ensure the connection is released
+                }
         }
     });
 }

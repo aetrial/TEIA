@@ -1,8 +1,8 @@
 import OpenAI from "openai";
-import pkg from 'pg';
+import pool from './db.js'; // Import the shared pool
 import { checkAvailability } from './cal.js';
 import { createBooking } from './cal.js';
-const { Client } = pkg;
+const client = await pool.connect();
 
 const handleRequiresAction = async (run, openai ,twilioId, thread) => {
   // Check if there are tools that require outputs
@@ -86,12 +86,6 @@ export const chat = async (question, thread = null, twilioId) => {
             throw new Error("Missing required environment variables");
         }
 
-        const client = new Client({
-            host: DB_HOST,
-            user: DB_USER,
-            password: DB_PASSWORD,
-            database: DB_NAME
-        });
         await client.connect();
 
         const query = `

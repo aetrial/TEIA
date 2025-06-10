@@ -1,27 +1,9 @@
 import dotenv from "dotenv";
 import WebSocket from "ws";
-import pkg from "pg";
-const { Pool } = pkg;
+import pool from './services/db.js'; // Import the shared pool
 
 // Load environment variables
 dotenv.config();
-
-let pool;
-
-function getPool() {
-  if (!pool) {
-    pool = new Pool({
-      host: process.env.DB_HOST,
-      user: process.env.DB_USER,
-      password: validatePassword(process.env.DB_PASSWORD),
-      database: process.env.DB_NAME,
-      max: 20,
-      idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 2000,
-    });
-  }
-  return pool;
-}
 
 function validatePassword(password) {
   if (typeof password !== "string" || password.trim() === "") {

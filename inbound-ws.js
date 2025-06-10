@@ -1,26 +1,8 @@
 import Twilio from "twilio";
 import { chat } from './services/Ia.js';
-import pkg from 'pg';
+import pool from './services/db.js'; // Import the shared pool
 import dotenv from 'dotenv';
 dotenv.config();
-const { Pool } = pkg;
-
-const {
-    DB_HOST,
-    DB_USER,
-    DB_PASSWORD,
-    DB_NAME
-} = process.env;
-
-const pool = new Pool({
-    host: DB_HOST,
-    user: DB_USER,
-    password: DB_PASSWORD,
-    database: DB_NAME,
-    max: 20,
-    idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 2000
-});
 
 // Map to store messages and their timers
 const messageQueue = new Map();
