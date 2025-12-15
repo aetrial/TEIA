@@ -46,11 +46,12 @@ export function registerOutboundRoutesNp(fastify) {
     }
 
     if (!items) {
-        return reply.code(400).send({ error: "items is required" });
+      return reply.code(400).send({ error: "items is required" });
     }
 
+    let client;
     try {
-      const client = await pool.connect();
+      client = await pool.connect();
 
       const dbInfoRes = await client.query(`
         SELECT * FROM twilio_info ti
@@ -89,9 +90,9 @@ export function registerOutboundRoutesNp(fastify) {
         error: "Failed to initiate call"
       });
     } finally {
-            if (client) {
-                client.release(); // Ensure the connection is released
-            }
+      if (client) {
+        client.release();
+      }
     }
   });
 
@@ -137,18 +138,14 @@ export function registerOutboundRoutesNp(fastify) {
 
           elevenLabsWs.on("open", () => {
             console.log("[ElevenLabs] Connected to Conversational AI");
-                        // Send initial configuration with prompt and first message
-                      const initialConfig = {
-                        type: "conversation_initiation_client_data",
-                        dynamic_variables: {
-                                  name: decodedNombre,
-                                  items: decodedItems
-                        }
-                      };
-
-                      // Send the configuration to ElevenLabs
-                      elevenLabsWs.send(JSON.stringify(initialConfig));
-
+            const initialConfig = {
+              type: "conversation_initiation_client_data",
+              dynamic_variables: {
+                name: decodedNombre,
+                items: decodedItems
+              }
+            };
+            elevenLabsWs.send(JSON.stringify(initialConfig));
           });
 
           elevenLabsWs.on("message", (data) => {
@@ -186,21 +183,35 @@ export function registerOutboundRoutesNp(fastify) {
                   }
                   break;
 
+                case "agent_tool_response":
+                  // Detect and close on end_call tool execution
+                  if (message.agent_tool_response?.tool_name === "end_call") {
+                    console.log("[ElevenLabs] Received end_call tool response — closing connections.");
+                    try {
+                      if (ws?.readyState === WebSocket.OPEN) {
+                        console.log("[Integrator] Closing Twilio WebSocket.");
+                        ws.close();
+                      }
+                      if (elevenLabsWs?.readyState === WebSocket.OPEN) {
+                        console.log("[Integrator] Closing ElevenLabs WebSocket.");
+                        elevenLabsWs.close();
+                      }
+                    } catch (err) {
+                      console.error("[Integrator] Error while closing sockets:", err);
+                    }
+                    return;
+                  }
+                  break;
+
                 case "interruption":
                   if (streamSid) {
-                    ws.send(JSON.stringify({
-                      event: "clear",
-                      streamSid
-                    }));
+                    ws.send(JSON.stringify({ event: "clear", streamSid }));
                   }
                   break;
 
                 case "ping":
                   if (message.ping_event?.event_id) {
-                    elevenLabsWs.send(JSON.stringify({
-                      type: "pong",
-                      event_id: message.ping_event.event_id
-                    }));
+                    elevenLabsWs.send(JSON.stringify({ type: "pong", event_id: message.ping_event.event_id }));
                   }
                   break;
 
@@ -218,6 +229,9 @@ export function registerOutboundRoutesNp(fastify) {
 
           elevenLabsWs.on("close", () => {
             console.log("[ElevenLabs] Disconnected");
+            if (ws?.readyState === WebSocket.OPEN) {
+                ws.close();
+              }
           });
 
         } catch (error) {
@@ -228,7 +242,6 @@ export function registerOutboundRoutesNp(fastify) {
       ws.on("message", (message) => {
         try {
           const msg = JSON.parse(message);
-          //console.log(`[Twilio] Received event: ${msg.event}`);
 
           switch (msg.event) {
             case "start":
@@ -236,10 +249,6 @@ export function registerOutboundRoutesNp(fastify) {
               callSid = msg.start.callSid;
               const { apiKey, agentId , name, items} = msg.start.customParameters;
               console.log('msg.start object', msg.start);
-              console.log('start event apiKey:', apiKey);
-              console.log('start event agentId:', agentId);
-              console.log('start event name:', name);
-              console.log('start event items:', items);
               console.log(`[Twilio] Stream started - StreamSid: ${streamSid}, CallSid: ${callSid}`);
               setupElevenLabs(apiKey, agentId, name, items);
               break;
