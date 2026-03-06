@@ -19,7 +19,7 @@ export function registerInboundRoutes(fastify) {
   async function initializeGlobalVariables(from) {
     let client;
     try {
-      client = await getPool().connect(); // Use the lazy-initialized pool
+      client = await pool.connect();
 
       const result = await client.query(`
         SELECT * FROM twilio_info ti

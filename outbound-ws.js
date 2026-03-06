@@ -27,8 +27,9 @@ export function registerOutboundWSRoutes(fastify) {
             return reply.code(400).send({ error: "Template is required" });
         }
 
+        let client;
         try {
-            const client = await pool.connect();
+            client = await pool.connect();
 
              const fromPhoneNumber = from.replace("whatsapp:", "");
 

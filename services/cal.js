@@ -1,7 +1,6 @@
 import axios from 'axios';
-import pkg from 'pg';
 import { DateTime } from 'luxon';
-const { Client } = pkg;
+import pool from './db.js';
 
 const transformBusyDates = (slots, timeZone) => {
   return Object.entries(slots).flatMap(([date, times]) => {
@@ -15,6 +14,7 @@ const transformBusyDates = (slots, timeZone) => {
 };
 
 export const checkAvailability = async ({ twilioId, dateFrom, dateTo }) => {
+    let client;
     try {
 
         console.log("Entering checkAvailability function");
@@ -26,31 +26,11 @@ export const checkAvailability = async ({ twilioId, dateFrom, dateTo }) => {
         // Convert dateFrom and dateTo to UTC
         const dateFromUTC = new Date(dateFrom);
         dateFromUTC.setDate(dateFromUTC.getDate());
-        const dateFromUpdated = dateFromUTC.toISOString();
 
         const dateToUTC = new Date(dateTo);
         dateToUTC.setDate(dateToUTC.getDate());
-        const dateToUpdated = dateToUTC.toISOString();
 
-        const {
-                DB_HOST,
-                DB_USER,
-                DB_PASSWORD,
-                DB_NAME
-        } = process.env;
-
-        if (!DB_HOST || !DB_USER || !DB_PASSWORD || !DB_NAME) {
-                console.error("Missing required environment variables");
-                throw new Error("Missing required environment variables");
-        }
-
-        const client = new Client({
-            host: DB_HOST,
-            user: DB_USER,
-            password: DB_PASSWORD,
-            database: DB_NAME
-        });
-        await client.connect();
+        client = await pool.connect();
 
         const query = `
             SELECT * FROM cal_info ci
@@ -86,10 +66,15 @@ export const checkAvailability = async ({ twilioId, dateFrom, dateTo }) => {
     } catch (error) {
         console.error('Error checking availability:', error.response?.data || error.message);
         throw error;
+    } finally {
+        if (client) {
+            client.release();
+        }
     }
 };
 
 export const createBooking = async ({ twilioId, dateFrom, dateTo, responses }) => {
+    let client;
     try {
 
         console.log("Entering createBooking function");
@@ -99,25 +84,7 @@ export const createBooking = async ({ twilioId, dateFrom, dateTo, responses }) =
         console.log("dateTo:", dateTo);
         console.log("responses:", responses);
 
-        const {
-                DB_HOST,
-                DB_USER,
-                DB_PASSWORD,
-                DB_NAME
-        } = process.env;
-
-        if (!DB_HOST || !DB_USER || !DB_PASSWORD || !DB_NAME) {
-                console.error("Missing required environment variables");
-                throw new Error("Missing required environment variables");
-        }
-
-        const client = new Client({
-            host: DB_HOST,
-            user: DB_USER,
-            password: DB_PASSWORD,
-            database: DB_NAME
-        });
-        await client.connect();
+        client = await pool.connect();
 
         const query = `
             SELECT * FROM cal_info ci
@@ -157,11 +124,15 @@ export const createBooking = async ({ twilioId, dateFrom, dateTo, responses }) =
 
         return response.data;
     } catch (error) {
-        if (error.response.data.message === 'no_available_users_found_error') {
+        if (error.response?.data?.message === 'no_available_users_found_error') {
             console.error('Error response:', error.response.data.message);
             return error.response.data.message;
         }
         console.error('Error creating booking:', error.response?.data || error.message);
         throw error;
+    } finally {
+        if (client) {
+            client.release();
+        }
     }
 };

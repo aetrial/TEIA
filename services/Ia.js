@@ -2,7 +2,6 @@ import OpenAI from "openai";
 import pool from './db.js'; // Import the shared pool
 import { checkAvailability } from './cal.js';
 import { createBooking } from './cal.js';
-const client = await pool.connect();
 
 const handleRequiresAction = async (run, openai ,twilioId, thread) => {
   // Check if there are tools that require outputs
@@ -73,6 +72,7 @@ export const chat = async (question, thread = null, twilioId) => {
     console.log("Entering chat function");
     let run; // Declare run in the outer scope
     let openai; // Declare openai in the outer scope
+    let client; // Declare client in the outer scope for finally cleanup
     try {
         const {
             DB_HOST,
@@ -86,7 +86,7 @@ export const chat = async (question, thread = null, twilioId) => {
             throw new Error("Missing required environment variables");
         }
 
-        await client.connect();
+        client = await pool.connect();
 
         const query = `
             SELECT * FROM open_ai_info oai
@@ -186,5 +186,9 @@ export const chat = async (question, thread = null, twilioId) => {
             }
         }
         return { thread, response: "Estamos presentando fallas en nuestro sistema. Nuestro equipo esta trabajando para solventarlo. Disculpa las molestias" };
+    } finally {
+        if (client) {
+            client.release();
+        }
     }
 };

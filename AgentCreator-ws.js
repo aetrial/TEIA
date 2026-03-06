@@ -1,21 +1,8 @@
 import WebSocket from "ws";
-import pkg from 'pg';
 import OpenAI from "openai";
-const { Client } = pkg;
+import pool from './services/db.js';
 
 export function registerAgentWS(fastify) {
-
-    const {
-            DB_HOST,
-            DB_USER,
-            DB_PASSWORD,
-            DB_NAME
-    } = process.env;
-
-    if (!DB_HOST || !DB_USER || !DB_PASSWORD || !DB_NAME) {
-            console.error("Missing required environment variables");
-            throw new Error("Missing required environment variables");
-    }
 
     fastify.post("/agent-ws", async (request, reply) => {
         console.info("[Server] Request body:", request.body);
@@ -47,15 +34,9 @@ export function registerAgentWS(fastify) {
         console.log("model:", model);
         console.log("agentPhoneNumber:", agentPhoneNumber);
 
+        let client;
         try {
-            const client = new Client({
-            host: DB_HOST,
-            user: DB_USER,
-            password: DB_PASSWORD,
-            database: DB_NAME
-            });
-
-            await client.connect();
+            client = await pool.connect();
 
             const query = `
                                 SELECT * FROM open_ai_info oai
@@ -71,11 +52,9 @@ export function registerAgentWS(fastify) {
 
             const openAiInfo = res.rows[0];
             console.log("OpenAI Info:", openAiInfo);
-            const { open_ai_api_key: OPENAI_API_KEY, open_ai_assistant_key: OPENAI_ASSISTANT_KEY } = openAiInfo;
+            const { open_ai_api_key: OPENAI_API_KEY } = openAiInfo;
 
-            const openaiApiKey = OPENAI_API_KEY;
-
-            const openai = new OpenAI({ apiKey: openaiApiKey });
+            const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
 
             const assistant = await openai.beta.assistants.create({
                     name: name,
@@ -84,29 +63,33 @@ export function registerAgentWS(fastify) {
                     model: model
                   });
 
-
             console.log("Assistant created:", assistant);
 
             const updateQuery = `
                 UPDATE open_ai_info
-                SET open_ai_assistant_key = '${assistant.id}'
+                SET open_ai_assistant_key = $1
                 WHERE id = (
                     SELECT oai.id
                     FROM open_ai_info oai
                     JOIN teia_user tu ON tu.open_ai_info_id = oai.id
                     JOIN twilio_info ti ON tu.twilio_info_id = ti.id
-                    WHERE ti.twilio_phone_number_whatsapp = '${agentPhoneNumber}'
+                    WHERE ti.twilio_phone_number_whatsapp = $2
                 )
             `;
 
-            await client.query(updateQuery);
+            await client.query(updateQuery, [assistant.id, agentPhoneNumber]);
 
+            return reply.send({ success: true, assistantId: assistant.id });
         } catch (error) {
                     console.error("Error initiating outbound ws:", error);
                     reply.code(500).send({
                         success: false,
                         error: "Failed to initiate WhatsApp message conversation"
                     });
+        } finally {
+            if (client) {
+                client.release();
+            }
         }
     });
 }
