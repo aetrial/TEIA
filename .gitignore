@@ -132,4 +132,9 @@ dist
 # Replit debugger
 .breakpoints
 .vscode/
+
+# Claude Code
 .claude/
+CLAUDE.md
+.claudeignore
+claude.json

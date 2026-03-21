@@ -21,9 +21,14 @@ fastify.register(fastifyWs);
 
 const PORT = process.env.PORT || 8000;
 
-// Root route for health check
+// Root route for basic check
 fastify.get("/", async (_, reply) => {
   reply.send({ message: "Server is running" });
+});
+
+// Health check endpoint
+fastify.get("/health", async (_, reply) => {
+  reply.send({ message: "I'm alive" });
 });
 
 // Start the Fastify server
