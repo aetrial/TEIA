@@ -2,6 +2,7 @@ import Fastify from "fastify";
 import dotenv from "dotenv";
 import fastifyFormBody from "@fastify/formbody";
 import fastifyWs from "@fastify/websocket";
+import { internalAuthHook } from './middleware/internal-auth.js';
 import { registerInboundRoutes } from './inbound-calls.js';
 import { registerOutboundWSRoutes } from './outbound-ws.js';
 import { registerInboundWSRoutes } from './inbound-ws.js';
@@ -18,6 +19,9 @@ const fastify = Fastify({
 
 fastify.register(fastifyFormBody);
 fastify.register(fastifyWs);
+
+// Register internal authentication hook for all routes except public endpoints
+fastify.addHook('preHandler', internalAuthHook);
 
 const PORT = process.env.PORT || 8000;
 

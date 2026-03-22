@@ -1,138 +1,120 @@
 import axios from 'axios';
 import { DateTime } from 'luxon';
-import pool from './db.js';
 
+const LOG_PREFIX = '[Cal]';
+
+/**
+ * Transforms Cal.com slot data to a more usable format.
+ */
 const transformBusyDates = (slots, timeZone) => {
   return Object.entries(slots).flatMap(([date, times]) => {
     return times.map(({ time }) => {
-      const startInBogota = DateTime.fromISO(time, { zone: 'utc' }).setZone(timeZone);
+      const startInZone = DateTime.fromISO(time, { zone: 'utc' }).setZone(timeZone);
       return {
-        time: startInBogota.toISO(),
+        time: startInZone.toISO(),
       };
     });
   });
 };
 
-export const checkAvailability = async ({ twilioId, dateFrom, dateTo }) => {
-    let client;
-    try {
+/**
+ * Checks availability on Cal.com for a given date range.
+ *
+ * @param {object} params
+ * @param {string} params.dateFrom - Start date (ISO format)
+ * @param {string} params.dateTo - End date (ISO format)
+ * @param {string} params.calApiKey - Cal.com API key
+ * @param {string} params.calUserId - Cal.com user ID
+ * @param {string} params.calEventId - Cal.com event type ID
+ * @returns {Promise<object>} Available slots
+ */
+export const checkAvailability = async ({ dateFrom, dateTo, calApiKey, calUserId, calEventId }) => {
+  console.log(`${LOG_PREFIX} checkAvailability: dateFrom=${dateFrom}, dateTo=${dateTo}`);
 
-        console.log("Entering checkAvailability function");
+  if (!calApiKey || !calEventId) {
+    console.error(`${LOG_PREFIX} Missing Cal.com credentials`);
+    throw new Error("Cal.com credentials not provided");
+  }
 
-        console.log("twilioId:", twilioId);
-        console.log("dateFrom:", dateFrom);
-        console.log("dateTo:", dateTo);
+  try {
+    // Convert dates to UTC
+    const dateFromUTC = new Date(dateFrom);
+    const dateToUTC = new Date(dateTo);
 
-        // Convert dateFrom and dateTo to UTC
-        const dateFromUTC = new Date(dateFrom);
-        dateFromUTC.setDate(dateFromUTC.getDate());
+    const response = await axios.get('https://api.cal.com/v1/slots', {
+      params: {
+        startTime: dateFromUTC,
+        endTime: dateToUTC,
+        eventTypeId: calEventId,
+        apiKey: calApiKey
+      }
+    });
 
-        const dateToUTC = new Date(dateTo);
-        dateToUTC.setDate(dateToUTC.getDate());
+    const transformedSlots = transformBusyDates(response.data.slots, response.data.timeZone);
 
-        client = await pool.connect();
+    return {
+      ...response.data,
+      slots: transformedSlots
+    };
 
-        const query = `
-            SELECT * FROM cal_info ci
-            JOIN teia_user tu ON tu.cal_info_id = ci.id
-            JOIN twilio_info ti ON tu.twilio_info_id = ti.id
-            WHERE ti.id = $1
-            `;
-       const res = await client.query(query, [twilioId]);
-
-       if (res.rows.length === 0) {
-             throw new Error("OpenAI information not found for the given Twilio ID");
-       }
-
-       const calInfo = res.rows[0];
-       console.log("cal Info:", calInfo);
-
-       const { user_id: userId, api_key: calApiKey, event_id: eventTypeId } = calInfo;
-
-        const response = await axios.get('https://api.cal.com/v1/slots', {
-            params: {
-                startTime: dateFromUTC,
-                endTime: dateToUTC,
-                eventTypeId,
-                apiKey: calApiKey
-            }
-        });
-
-        const transformedBusy = transformBusyDates(response.data.slots, response.data.timeZone);
-
-        response.data.slots = transformedBusy;
-
-        return response.data;
-    } catch (error) {
-        console.error('Error checking availability:', error.response?.data || error.message);
-        throw error;
-    } finally {
-        if (client) {
-            client.release();
-        }
-    }
+  } catch (error) {
+    console.error(`${LOG_PREFIX} Error checking availability:`, error.response?.data || error.message);
+    throw error;
+  }
 };
 
-export const createBooking = async ({ twilioId, dateFrom, dateTo, responses }) => {
-    let client;
-    try {
+/**
+ * Creates a booking on Cal.com.
+ *
+ * @param {object} params
+ * @param {string} params.dateFrom - Start time (ISO format)
+ * @param {string} params.dateTo - End time (ISO format)
+ * @param {object} params.responses - Booking form responses (name, email, etc.)
+ * @param {string} params.calApiKey - Cal.com API key
+ * @param {string} params.calUserId - Cal.com user ID
+ * @param {string} params.calEventId - Cal.com event type ID
+ * @returns {Promise<object>} Booking result
+ */
+export const createBooking = async ({ dateFrom, dateTo, responses, calApiKey, calUserId, calEventId }) => {
+  console.log(`${LOG_PREFIX} createBooking: dateFrom=${dateFrom}, dateTo=${dateTo}`);
 
-        console.log("Entering createBooking function");
+  if (!calApiKey || !calEventId) {
+    console.error(`${LOG_PREFIX} Missing Cal.com credentials`);
+    throw new Error("Cal.com credentials not provided");
+  }
 
-        console.log("twilioId:", twilioId);
-        console.log("dateFrom:", dateFrom);
-        console.log("dateTo:", dateTo);
-        console.log("responses:", responses);
+  try {
+    const eventTypeIdInt = parseInt(calEventId, 10);
 
-        client = await pool.connect();
-
-        const query = `
-            SELECT * FROM cal_info ci
-            JOIN teia_user tu ON tu.cal_info_id = ci.id
-            JOIN twilio_info ti ON tu.twilio_info_id = ti.id
-            WHERE ti.id = $1
-            `;
-       const res = await client.query(query, [twilioId]);
-
-       if (res.rows.length === 0) {
-             throw new Error("OpenAI information not found for the given Twilio ID");
-       }
-
-       const calInfo = res.rows[0];
-       console.log("cal Info:", calInfo);
-
-       const { user_id: userId, api_key: calApiKey, event_id: eventTypeId } = calInfo;
-
-        const eventTypeIdInt = parseInt(eventTypeId, 10); // Cast to integer with base 10
-
-        const response = await axios.post(`https://api.cal.com/v1/bookings?apiKey=${calApiKey}`, {
-            responses,
-            start: dateFrom,
-            end: dateTo,
-            eventTypeId: eventTypeIdInt,
-            timeZone: "America/Bogota",
-            language: "en",
-            location: "",
-            metadata: {},
-            hasHashedBookingLink: false,
-            hashedLink: null
-        }, {
-            headers: {
-                'Content-Type': 'application/json'
-            }
-        });
-
-        return response.data;
-    } catch (error) {
-        if (error.response?.data?.message === 'no_available_users_found_error') {
-            console.error('Error response:', error.response.data.message);
-            return error.response.data.message;
+    const response = await axios.post(
+      `https://api.cal.com/v1/bookings?apiKey=${calApiKey}`,
+      {
+        responses,
+        start: dateFrom,
+        end: dateTo,
+        eventTypeId: eventTypeIdInt,
+        timeZone: "America/Bogota",
+        language: "en",
+        location: "",
+        metadata: {},
+        hasHashedBookingLink: false,
+        hashedLink: null
+      },
+      {
+        headers: {
+          'Content-Type': 'application/json'
         }
-        console.error('Error creating booking:', error.response?.data || error.message);
-        throw error;
-    } finally {
-        if (client) {
-            client.release();
-        }
+      }
+    );
+
+    return response.data;
+
+  } catch (error) {
+    if (error.response?.data?.message === 'no_available_users_found_error') {
+      console.warn(`${LOG_PREFIX} No available users for booking`);
+      return { error: 'no_available_users_found_error' };
     }
+    console.error(`${LOG_PREFIX} Error creating booking:`, error.response?.data || error.message);
+    throw error;
+  }
 };

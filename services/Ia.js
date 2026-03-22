@@ -1,194 +1,213 @@
 import OpenAI from "openai";
-import pool from './db.js'; // Import the shared pool
-import { checkAvailability } from './cal.js';
-import { createBooking } from './cal.js';
+import { checkAvailability, createBooking } from './cal.js';
 
-const handleRequiresAction = async (run, openai ,twilioId, thread) => {
-  // Check if there are tools that require outputs
+const LOG_PREFIX = '[IA]';
+
+/**
+ * Handles OpenAI function calling (tool_calls) for scheduling operations.
+ */
+const handleRequiresAction = async (run, openai, thread, calCredentials) => {
   if (
     run.required_action &&
     run.required_action.submit_tool_outputs &&
     run.required_action.submit_tool_outputs.tool_calls
   ) {
+    console.log(`${LOG_PREFIX} Processing tool calls:`, run.required_action.submit_tool_outputs.tool_calls.map(t => t.function.name));
 
-  console.log("required_action: ", run.required_action.submit_tool_outputs);
+    const toolOutputs = await Promise.all(
+      run.required_action.submit_tool_outputs.tool_calls.map(async (tool) => {
+        if (tool.function.name === "checkAvailability") {
+          const toolArguments = JSON.parse(tool.function.arguments);
+          console.log(`${LOG_PREFIX} checkAvailability args:`, toolArguments);
 
-    // Loop through each tool in the required action section
-const toolOutputs = await Promise.all(
-  run.required_action.submit_tool_outputs.tool_calls.map(async (tool) => {
-    if (tool.function.name === "checkAvailability") {
-      const toolArguments = JSON.parse(tool.function.arguments);
-      console.log("toolArguments:", tool);
-      const availability = await checkAvailability({
-        twilioId,
-        dateFrom: toolArguments.dateFrom,
-        dateTo: toolArguments.dateTo,
-      });
-      console.log("checkAvailability response:", availability);
-      return {
-        tool_call_id: tool.id,
-        output: JSON.stringify(availability),
-      };
-    } else if (tool.function.name === "createBooking") {
-      const toolArguments = JSON.parse(tool.function.arguments);
-      console.log("toolArguments createBooking:", tool);
-      const booking = await createBooking({
-        twilioId,
-        dateFrom: toolArguments.start,
-        dateTo: toolArguments.end,
-        responses: toolArguments.responses,
-      });
-      console.log("createBooking response:", booking);
-      return {
-        tool_call_id: tool.id,
-        output: JSON.stringify(booking),
-      };
-     } else {
-        return null;
-     }
-     })
+          const availability = await checkAvailability({
+            dateFrom: toolArguments.dateFrom,
+            dateTo: toolArguments.dateTo,
+            calApiKey: calCredentials.calApiKey,
+            calUserId: calCredentials.calUserId,
+            calEventId: calCredentials.calEventId
+          });
+
+          console.log(`${LOG_PREFIX} checkAvailability result:`, availability);
+          return {
+            tool_call_id: tool.id,
+            output: JSON.stringify(availability),
+          };
+        } else if (tool.function.name === "createBooking") {
+          const toolArguments = JSON.parse(tool.function.arguments);
+          console.log(`${LOG_PREFIX} createBooking args:`, toolArguments);
+
+          const booking = await createBooking({
+            dateFrom: toolArguments.start,
+            dateTo: toolArguments.end,
+            responses: toolArguments.responses,
+            calApiKey: calCredentials.calApiKey,
+            calUserId: calCredentials.calUserId,
+            calEventId: calCredentials.calEventId
+          });
+
+          console.log(`${LOG_PREFIX} createBooking result:`, booking);
+          return {
+            tool_call_id: tool.id,
+            output: JSON.stringify(booking),
+          };
+        } else {
+          console.warn(`${LOG_PREFIX} Unknown tool: ${tool.function.name}`);
+          return null;
+        }
+      })
     );
 
-    // Submit all tool outputs at once after collecting them in a list
-    console.log("thread before submittools: ", thread, "run id: ", run.id);
-    console.log("toolOutputs: ", toolOutputs);
-    if (toolOutputs.length > 0) {
+    const validOutputs = toolOutputs.filter(output => output !== null);
+    if (validOutputs.length > 0) {
+      console.log(`${LOG_PREFIX} Submitting ${validOutputs.length} tool outputs`);
       run = await openai.beta.threads.runs.submitToolOutputsAndPoll(
         thread,
         run.id,
-        { tool_outputs: toolOutputs.filter(output => output !== null) },
+        { tool_outputs: validOutputs }
       );
-      console.log("Tool outputs submitted successfully.");
-    } else {
-      console.log("No tool outputs to submit.");
+      console.log(`${LOG_PREFIX} Tool outputs submitted successfully`);
     }
 
-    // Check status after submitting tool outputs
-    return;
+    return run;
+  }
+  return run;
+};
+
+/**
+ * Sends a message to an OpenAI Assistant and returns the response.
+ *
+ * @param {string} question - The user's message
+ * @param {string|null} thread - Existing thread ID, or null to create a new one
+ * @param {object} credentials - API credentials
+ * @param {string} credentials.openAiApiKey - OpenAI API key
+ * @param {string} credentials.openAiAssistantId - OpenAI Assistant ID
+ * @param {string} [credentials.calApiKey] - Cal.com API key (for scheduling tools)
+ * @param {string} [credentials.calUserId] - Cal.com user ID
+ * @param {string} [credentials.calEventId] - Cal.com event type ID
+ * @returns {Promise<{thread: string, response: string|null}>}
+ */
+export const chat = async (question, thread = null, credentials = {}) => {
+  console.log(`${LOG_PREFIX} Processing message`);
+
+  const {
+    openAiApiKey,
+    openAiAssistantId,
+    calApiKey,
+    calUserId,
+    calEventId
+  } = credentials;
+
+  if (!openAiApiKey || !openAiAssistantId) {
+    console.error(`${LOG_PREFIX} Missing OpenAI credentials`);
+    return {
+      thread,
+      response: "System configuration error. Please try again later."
+    };
+  }
+
+  let run;
+  let openai;
+
+  try {
+    openai = new OpenAI({ apiKey: openAiApiKey });
+
+    // Create or use existing thread
+    thread = thread || (await openai.beta.threads.create()).id;
+    console.log(`${LOG_PREFIX} Using thread: ${thread}`);
+
+    // Create the user message in the thread
+    await openai.beta.threads.messages.create(thread, {
+      role: "user",
+      content: question
+    });
+
+    // Create and execute the assistant run
+    run = await openai.beta.threads.runs.createAndPoll(thread, {
+      assistant_id: openAiAssistantId
+    });
+
+    console.log(`${LOG_PREFIX} Run status: ${run.status}`);
+
+    if (run.status === 'completed') {
+      return await extractResponse(openai, run, thread);
+    }
+
+    if (run.status === "requires_action") {
+      console.log(`${LOG_PREFIX} Run requires action: ${run.required_action.submit_tool_outputs.tool_calls[0].function.name}`);
+
+      const calCredentials = { calApiKey, calUserId, calEventId };
+      run = await handleRequiresAction(run, openai, thread, calCredentials);
+
+      // Wait for completion after tool execution
+      let attempts = 0;
+      const maxAttempts = 5;
+      const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+      while (run.status !== 'completed' && attempts < maxAttempts) {
+        console.log(`${LOG_PREFIX} Waiting for completion... attempt ${attempts + 1}/${maxAttempts}`);
+        await wait(5000);
+        run = await openai.beta.threads.runs.retrieve(run.thread_id, run.id);
+        attempts++;
+      }
+
+      if (run.status !== 'completed') {
+        console.error(`${LOG_PREFIX} Run did not complete after ${maxAttempts} attempts`);
+        return {
+          thread,
+          response: "Sorry, could you be a bit clearer with your question?"
+        };
+      }
+
+      return await extractResponse(openai, run, thread);
+    }
+
+    console.error(`${LOG_PREFIX} Unexpected run status: ${run.status}`);
+    return { thread, response: null };
+
+  } catch (err) {
+    console.error(`${LOG_PREFIX} Error:`, err.message);
+
+    // Attempt to cancel the run if it exists
+    if (run && run.id && openai) {
+      try {
+        await openai.beta.threads.runs.cancel(thread, run.id);
+        console.log(`${LOG_PREFIX} Run ${run.id} canceled`);
+      } catch (cancelError) {
+        console.error(`${LOG_PREFIX} Failed to cancel run: ${cancelError.message}`);
+      }
+    }
+
+    return {
+      thread,
+      response: "We're experiencing system issues. Our team is working on it. Sorry for the inconvenience."
+    };
   }
 };
 
-export const chat = async (question, thread = null, twilioId) => {
-    console.log("Entering chat function");
-    let run; // Declare run in the outer scope
-    let openai; // Declare openai in the outer scope
-    let client; // Declare client in the outer scope for finally cleanup
-    try {
-        const {
-            DB_HOST,
-            DB_USER,
-            DB_PASSWORD,
-            DB_NAME
-        } = process.env;
+/**
+ * Extracts the assistant's response from a completed run.
+ */
+async function extractResponse(openai, run, thread) {
+  const messages = await openai.beta.threads.messages.list(run.thread_id);
 
-        if (!DB_HOST || !DB_USER || !DB_PASSWORD || !DB_NAME) {
-            console.error("Missing required environment variables");
-            throw new Error("Missing required environment variables");
-        }
+  const assistantResponse = messages.data
+    .filter(message => message.role === 'assistant')
+    .pop();
 
-        client = await pool.connect();
+  const answer = assistantResponse?.content[0]?.text?.value || null;
+  return { thread, response: answer };
+}
 
-        const query = `
-            SELECT * FROM open_ai_info oai
-            JOIN teia_user tu ON tu.open_ai_info_id = oai.id
-            JOIN twilio_info ti ON tu.twilio_info_id = ti.id
-            WHERE ti.id = $1
-        `;
-        const res = await client.query(query, [twilioId]);
-
-        if (res.rows.length === 0) {
-            throw new Error("OpenAI information not found for the given Twilio ID");
-        }
-
-        const openAiInfo = res.rows[0];
-        console.log("OpenAI Info:", openAiInfo);
-        const { open_ai_api_key: OPENAI_API_KEY, open_ai_assistant_key: OPENAI_ASSISTANT_KEY } = openAiInfo;
-
-        openai = new OpenAI({ apiKey: OPENAI_API_KEY }); // Initialize openai
-        const assistant = OPENAI_ASSISTANT_KEY;
-
-        console.log("Assistant ID of current agent:", assistant);
-
-        thread = thread || (await openai.beta.threads.create()).id;
-
-        // Create the user message in the thread
-        await openai.beta.threads.messages.create(thread, {
-            role: "user",
-            content: question
-        });
-
-        // Create and execute the assistant run
-        run = await openai.beta.threads.runs.createAndPoll(thread, {
-            assistant_id: assistant
-        });
-
-        console.log("Run ID:", run.id);
-
-        if (run.status === 'completed') {
-            console.log("run status: " + run.status);
-            const messages = await openai.beta.threads.messages.list(run.thread_id);
-            for (const message of messages.data.reverse()) {
-                console.log(`${message.role} > ${message.content[0].text.value}`);
-              }
-            const assistantResponse = messages.data
-                .filter(message => message.role === 'assistant')
-                .pop();
-
-            const answer = assistantResponse ? assistantResponse.content[0].text.value : null;
-            return { thread, response: answer };
-        } else if (run.status === "requires_action") {
-            console.log("run status: " + run.status + " tooling Name: " + run.required_action.submit_tool_outputs.tool_calls[0].function.name);
-            await handleRequiresAction(run, openai, twilioId, thread);
-            console.log("run status after outputs: " + run.status);
-
-            let attempts = 0; // Initialize a counter for the loop
-            const maxAttempts = 5; // Set the maximum number of attempts
-
-            const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-            while (run.status !== 'completed' && attempts < maxAttempts) {
-                console.log(`Run status: ${run.status}. Attempt ${attempts + 1} of ${maxAttempts}. Waiting for 5 seconds...`);
-                await wait(5000); // Wait for 2 seconds
-                run = await openai.beta.threads.runs.retrieve(run.thread_id, run.id); // Refresh the run status
-                attempts++; // Increment the counter
-            }
-
-            if (run.status !== 'completed') {
-                console.error(`Run did not complete after ${maxAttempts} attempts.`);
-                return { thread, response: "Disculpa, ¿podrias ser un poco mas claro con tu pregunta?." };
-            }
-
-            console.log("Run status: completed. Fetching messages...");
-            const messages = await openai.beta.threads.messages.list(run.thread_id);
-            for (const message of messages.data.reverse()) {
-                console.log(`${message.role} > ${message.content[0].text.value}`);
-            }
-            const assistantResponse = messages.data
-                .filter(message => message.role === 'assistant')
-                .pop();
-
-            const answer = assistantResponse ? assistantResponse.content[0].text.value : null;
-            return { thread, response: answer };
-        } else {
-            console.error("Run did not complete:", run);
-        }
-
-        return { thread, response: null };
-    } catch (err) {
-        console.error("Error al conectar con OpenAI:", err);
-        // Attempt to cancel the run if it exists
-        if (run && run.id) {
-            try {
-                await openai.beta.threads.runs.cancel(thread, run.id);
-                console.log(`Run ${run.id} canceled successfully.`);
-            } catch (cancelError) {
-                console.error(`Failed to cancel run ${run.id}:`, cancelError);
-            }
-        }
-        return { thread, response: "Estamos presentando fallas en nuestro sistema. Nuestro equipo esta trabajando para solventarlo. Disculpa las molestias" };
-    } finally {
-        if (client) {
-            client.release();
-        }
-    }
+/**
+ * Legacy function signature for backward compatibility.
+ * DEPRECATED: Use the new signature with credentials object.
+ *
+ * @deprecated
+ */
+export const chatLegacy = async (question, thread = null, twilioId) => {
+  console.warn(`${LOG_PREFIX} [DEPRECATED] chatLegacy() called with twilioId. This will be removed.`);
+  // This function is kept for reference but should not be used
+  // New code should pass credentials directly
+  throw new Error("chatLegacy is deprecated. Pass credentials directly to chat().");
 };
