@@ -70,6 +70,9 @@ All endpoints (except health checks) require HMAC authentication from TEIA-users
 | `POST` | `/internal/outbound-call-twiml-np` | Generate TwiML for outbound call. Called by Twilio after call connects. |
 | `POST` | `/internal/agent` | Create OpenAI Assistant. Returns assistant ID for TEIA-users to store. |
 
+> **Note:** TEIA Core also calls back into TEIA-users at session start:
+> `GET /internal/clients/{clientId}/prompt` — fetches the client's active system prompt. Falls back to a default prompt if 404.
+
 ### WebSocket Endpoints
 
 | Path | Description |
@@ -262,6 +265,7 @@ outbound-ws.js                - /internal/outbound-ws handler
 outbound-calls-nopromp.js     - /internal/outbound-call-np and /outbound-media-stream-np
 services/
   session-complete.js         - Reports completion back to TEIA-users (includes provider telemetry fields)
+  prompt-service.js           - Fetches client's active system prompt from TEIA-users at session start
   Ia.js                       - OpenAI Assistants integration
   db.js                       - PostgreSQL connection pool
 ```

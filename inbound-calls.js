@@ -2,6 +2,7 @@ import dotenv from "dotenv";
 import WebSocket from "ws";
 import { validateWebSocketToken } from './middleware/internal-auth.js';
 import { reportSessionComplete, calculateDuration } from './services/session-complete.js';
+import { fetchClientPrompt } from './services/prompt-service.js';
 
 // Load environment variables
 dotenv.config();
@@ -98,9 +99,12 @@ export function registerInboundRoutes(fastify) {
 
       /**
        * Initializes connection to ElevenLabs Conversational AI.
+       * @param {string} apiKey - ElevenLabs API key
+       * @param {string} agentId - ElevenLabs agent ID
+       * @param {string|null} customPrompt - Optional custom system prompt from TEIA-users
        */
-      const initElevenLabs = (apiKey, agentId) => {
-        console.log(`[ElevenLabs] Connecting with agentId=${agentId}`);
+      const initElevenLabs = (apiKey, agentId, customPrompt = null) => {
+        console.log(`[ElevenLabs] Connecting with agentId=${agentId}${customPrompt ? ' (with custom prompt)' : ''}`);
 
         elevenLabsWs = new WebSocket(
           `wss://api.elevenlabs.io/v1/convai/conversation?agent_id=${agentId}`
@@ -108,6 +112,20 @@ export function registerInboundRoutes(fastify) {
 
         elevenLabsWs.on("open", () => {
           console.log("[ElevenLabs] Connected to Conversational AI.");
+
+          // Send custom prompt configuration if provided
+          if (customPrompt) {
+            const promptConfig = {
+              type: "conversation_initiation_client_data",
+              conversation_config_override: {
+                agent: {
+                  prompt: { prompt: customPrompt }
+                }
+              }
+            };
+            elevenLabsWs.send(JSON.stringify(promptConfig));
+            console.log("[ElevenLabs] Sent custom prompt configuration.");
+          }
         });
 
         elevenLabsWs.on("message", (data) => {
@@ -222,7 +240,15 @@ export function registerInboundRoutes(fastify) {
 
               // Initialize ElevenLabs with passed credentials
               if (credentials.elevenLabsAgentId) {
-                initElevenLabs(credentials.elevenLabsApiKey, credentials.elevenLabsAgentId);
+                // Fetch custom prompt for this client (non-blocking, falls back to default if unavailable)
+                let customPrompt = null;
+                try {
+                  customPrompt = await fetchClientPrompt(sessionInfo.clientId);
+                } catch (err) {
+                  console.warn(`[Session] Could not fetch custom prompt, using default: ${err.message}`);
+                }
+
+                initElevenLabs(credentials.elevenLabsApiKey, credentials.elevenLabsAgentId, customPrompt);
               } else {
                 console.error("[Session] Missing ElevenLabs credentials in customParameters");
                 connection.close(4002, 'Missing ElevenLabs credentials');

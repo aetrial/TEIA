@@ -61,3 +61,51 @@ export async function signedPost(url, body) {
     throw err;
   }
 }
+
+/**
+ * Sends a signed GET request to an internal service endpoint.
+ *
+ * @param {string} url - The full URL to GET
+ * @returns {Promise<import('axios').AxiosResponse>} The axios response
+ */
+export async function signedGet(url) {
+  const internalSecret = process.env.INTERNAL_SECRET;
+  const clientId = process.env.TEIA_CLIENT_ID;
+
+  if (!internalSecret) {
+    throw new Error(`${LOG_PREFIX} INTERNAL_SECRET environment variable is not set`);
+  }
+
+  if (!clientId) {
+    throw new Error(`${LOG_PREFIX} TEIA_CLIENT_ID environment variable is not set`);
+  }
+
+  // For GET requests, sign the URL path + timestamp
+  const urlPath = new URL(url).pathname;
+  const timestamp = Date.now().toString();
+  const signatureInput = urlPath + timestamp;
+
+  const signature = crypto
+    .createHmac('sha256', internalSecret)
+    .update(signatureInput)
+    .digest('hex');
+
+  console.log(`${LOG_PREFIX} Sending signed GET to ${url} (timestamp=${timestamp}, clientId=${clientId})`);
+
+  try {
+    const response = await axios.get(url, {
+      headers: {
+        'X-Internal-Key': signature,
+        'X-Timestamp': timestamp,
+        'X-Client-ID': clientId,
+      },
+    });
+
+    console.log(`${LOG_PREFIX} Response ${response.status} from ${url}`);
+    return response;
+  } catch (err) {
+    const status = err.response?.status;
+    console.error(`${LOG_PREFIX} Request to ${url} failed: status=${status ?? 'no response'}, message=${err.message}`);
+    throw err;
+  }
+}
