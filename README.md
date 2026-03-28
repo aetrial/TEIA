@@ -243,8 +243,8 @@ For rapid development, you can temporarily disable authentication by commenting 
 4. Twilio connects to TEIA Core WebSocket with session parameters
 5. TEIA Core validates token and initializes ElevenLabs connection
 6. Audio streams bidirectionally (Twilio <-> TEIA Core <-> ElevenLabs)
-7. On disconnect, TEIA Core reports completion to TEIA-users
-8. TEIA-users reconciles credits (refunds unused, charges overage)
+7. On disconnect, TEIA Core reports completion to TEIA-users (with provider telemetry: call duration, SMS count, token counts, ElevenLabs characters)
+8. TEIA-users reconciles credits (refunds unused, charges overage) and stores provider metrics
 ```
 
 ---
@@ -261,7 +261,7 @@ inbound-ws.js                 - /internal/message handler
 outbound-ws.js                - /internal/outbound-ws handler
 outbound-calls-nopromp.js     - /internal/outbound-call-np and /outbound-media-stream-np
 services/
-  session-complete.js         - Reports completion back to TEIA-users
+  session-complete.js         - Reports completion back to TEIA-users (includes provider telemetry fields)
   Ia.js                       - OpenAI Assistants integration
   db.js                       - PostgreSQL connection pool
 ```

@@ -29,9 +29,25 @@ function getTeiaUsersUrl() {
  * @param {string} params.type - 'CALL' or 'MESSAGE'
  * @param {number|null} params.actualDurationSeconds - Actual duration in seconds (null for messages)
  * @param {string} params.status - 'COMPLETED' or 'FAILED'
+ * @param {number|null} [params.twilioCallDurationSeconds] - Actual billed call duration from Twilio (nullable)
+ * @param {number|null} [params.twilioSmsCount] - Number of SMS segments sent; 0 for calls (nullable)
+ * @param {number|null} [params.openAiInputTokens] - Prompt tokens consumed by OpenAI (nullable)
+ * @param {number|null} [params.openAiOutputTokens] - Completion tokens consumed by OpenAI (nullable)
+ * @param {number|null} [params.elevenLabsCharacters] - Characters synthesized via ElevenLabs TTS (nullable)
  * @returns {Promise<object|null>} The response from TEIA-users, or null on error
  */
-export async function reportSessionComplete({ clientId, sessionId, type, actualDurationSeconds, status }) {
+export async function reportSessionComplete({
+  clientId,
+  sessionId,
+  type,
+  actualDurationSeconds,
+  status,
+  twilioCallDurationSeconds,
+  twilioSmsCount,
+  openAiInputTokens,
+  openAiOutputTokens,
+  elevenLabsCharacters
+}) {
   const internalSecret = process.env.INTERNAL_SECRET;
 
   if (!internalSecret) {
@@ -52,7 +68,12 @@ export async function reportSessionComplete({ clientId, sessionId, type, actualD
     sessionId,
     type,
     actualDurationSeconds,
-    status
+    status,
+    twilioCallDurationSeconds,
+    twilioSmsCount,
+    openAiInputTokens,
+    openAiOutputTokens,
+    elevenLabsCharacters
   });
 
   const timestamp = Date.now().toString();
